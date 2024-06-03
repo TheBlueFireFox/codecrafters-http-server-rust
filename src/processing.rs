@@ -1,6 +1,8 @@
+use std::collections::BTreeSet;
+
 use crate::{
     header::{Request, Version},
-    response::{Response, Status},
+    response::{ContentType, Headers, Response, Status},
 };
 
 pub async fn process(request: &Request) -> Response {
@@ -36,10 +38,13 @@ async fn echo(request: &Request) -> Response {
         return not_found(request).await;
     }
 
+    let mut headers = BTreeSet::new();
+    headers.insert(Headers::ContentType(ContentType::TextPlain));
+
     Response {
         version: Version::Http11,
         status: Status::Ok,
-        headers: Default::default(),
+        headers,
         body: Some(sections[1].as_bytes().to_vec()),
     }
 }
