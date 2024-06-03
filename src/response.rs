@@ -1,7 +1,9 @@
 #![allow(dead_code)]
-use std::collections::BTreeSet;
+use std::{collections::BTreeSet, io::Write};
 
-use crate::request::Version;
+use libflate::gzip::Encoder;
+
+use crate::request::{Encoding, Version};
 
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
 pub enum ContentType {
@@ -22,6 +24,8 @@ impl ContentType {
 pub enum Headers {
     ContentType(ContentType),
     ContentLength(usize),
+    AcceptEncoding(Encoding),
+    ContentEncoding(Encoding),
 }
 
 impl Headers {
@@ -29,6 +33,8 @@ impl Headers {
         match self {
             Headers::ContentType(ct) => ("Content-Type", ct.text().to_string()),
             Headers::ContentLength(size) => ("Content-Length", format!("{}", size)),
+            Headers::AcceptEncoding(enc) => ("Accept-Encoding", enc.text().to_string()),
+            Headers::ContentEncoding(enc) => ("Content-Encoding", enc.text().to_string()),
         }
     }
 }
@@ -69,11 +75,25 @@ pub struct Response {
     pub version: Version,
     pub status: Status,
     pub headers: BTreeSet<Headers>,
+    pub accept_encoding: Option<Encoding>,
     pub body: Option<Vec<u8>>,
 }
 
 impl Response {
     pub fn write(&self, buf: &mut Vec<u8>) {
+        self.handle_response_line(buf);
+        self.handle_headers(buf);
+        self.handle_body(buf);
+    }
+
+    fn insert(key: &str, value: &str, buf: &mut Vec<u8>) {
+        buf.extend_from_slice(key.as_bytes());
+        buf.extend_from_slice(": ".as_bytes());
+        buf.extend_from_slice(value.as_bytes());
+        buf.extend_from_slice(END_LINE.as_bytes());
+    }
+
+    fn handle_response_line(&self, buf: &mut Vec<u8>) {
         // HTTP/1.1 200 OK\r\n\r\n
         buf.extend_from_slice(self.version.text().as_bytes());
         buf.push(b' ');
@@ -81,30 +101,41 @@ impl Response {
         buf.push(b' ');
         buf.extend_from_slice(self.status.reason().as_bytes());
         buf.extend_from_slice(END_LINE.as_bytes());
+    }
 
-        let insert = |key: &str, value: &str, buf: &mut Vec<u8>| {
-            buf.extend_from_slice(key.as_bytes());
-            buf.extend_from_slice(": ".as_bytes());
-            buf.extend_from_slice(value.as_bytes());
-            buf.extend_from_slice(END_LINE.as_bytes());
-        };
-
+    fn handle_headers(&self, buf: &mut Vec<u8>) {
         for header in &self.headers {
             if let Headers::ContentLength(_) = header {
                 continue;
             }
             let (key, value) = header.text();
-            insert(key, &value, buf);
+            Self::insert(key, &value, buf);
         }
+    }
+
+    fn handle_body(&self, buf: &mut Vec<u8>) {
+        let handle_writing = |buf: &mut Vec<u8>, body: &[u8]| {
+            let (key, value) = Headers::ContentLength(body.len()).text();
+            Self::insert(key, &value, buf);
+            buf.extend_from_slice(END_LINE.as_bytes());
+            buf.extend_from_slice(body);
+        };
 
         match &self.body {
             None => buf.extend_from_slice(END_LINE.as_bytes()),
-            Some(body) => {
-                let (key, value) = Headers::ContentLength(body.len()).text();
-                insert(key, &value, buf);
-                buf.extend_from_slice(END_LINE.as_bytes());
-                buf.extend_from_slice(body);
-            }
+            Some(body) => match self.accept_encoding {
+                None => handle_writing(buf, body),
+                Some(enc @ Encoding::Gzip) => {
+                    let (key, value) = Headers::ContentEncoding(enc).text();
+                    Self::insert(key, &value, buf);
+
+                    let mut e = Encoder::new(Vec::new()).expect("unable to create encoder");
+                    e.write_all(body)
+                        .expect("able to correctly write compressed body");
+                    let cbody = e.finish().into_result().expect("unable to compress");
+                    handle_writing(buf, &cbody);
+                }
+            },
         }
     }
 }
@@ -126,6 +157,7 @@ mod test {
             status: Status::Ok,
             headers: Default::default(),
             body: None,
+            accept_encoding: None,
         };
         let mut buffer = Vec::new();
         res.write(&mut buffer);
@@ -144,6 +176,8 @@ mod test {
             status: Status::Ok,
             headers,
             body: None,
+
+            accept_encoding: None,
         };
         let mut buffer = Vec::new();
         res.write(&mut buffer);
@@ -168,6 +202,7 @@ mod test {
                     .copied()
                     .collect_vec(),
             ),
+            accept_encoding: None,
         };
         let mut buffer = Vec::new();
         res.write(&mut buffer);

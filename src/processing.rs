@@ -18,22 +18,22 @@ impl Router {
             "echo" => self.echo(request),
             "user-agent" => self.user_agent(request),
             "files" => self.files(request).await,
-            _ => Self::not_found(),
+            _ => Self::not_found(request),
         }
     }
 
-    fn root(&self, _request: &Request) -> Response {
-        Self::ok()
+    fn root(&self, request: &Request) -> Response {
+        Self::ok(request)
     }
 
     fn echo(&self, request: &Request) -> Response {
         let sections = &request.header.url.sections;
 
         if sections.len() == 1 {
-            return Self::not_found();
+            return Self::not_found(request);
         }
 
-        let mut resp = Self::ok();
+        let mut resp = Self::ok(request);
 
         let ct = Headers::ContentType(ContentType::TextPlain);
         resp.headers.insert(ct);
@@ -42,11 +42,11 @@ impl Router {
     }
 
     fn user_agent(&self, request: &Request) -> Response {
-        let mut resp = Self::ok();
+        let mut resp = Self::ok(request);
         let ct = Headers::ContentType(ContentType::TextPlain);
 
         resp.headers.insert(ct);
-        resp.body = Some(request.header.headers["User-Agent"].as_bytes().to_vec());
+        resp.body = Some(request.header.headers["user-agent"].as_bytes().to_vec());
         resp
     }
 
@@ -61,21 +61,21 @@ impl Router {
         let sections = &request.header.url.sections;
 
         if sections.len() == 1 {
-            return Self::not_found();
+            return Self::not_found(request);
         }
         match &self.directory {
-            None => Self::internal_server_error(),
+            None => Self::internal_server_error(request),
             Some(directory) => {
                 let mut file = PathBuf::from(&directory[..]);
                 file.push(&sections[1]);
 
                 match try_exists(&file).await {
-                    Err(_) => Self::internal_server_error(),
-                    Ok(false) => Self::not_found(),
+                    Err(_) => Self::internal_server_error(request),
+                    Ok(false) => Self::not_found(request),
                     Ok(true) => match read(file).await {
-                        Err(_) => Self::internal_server_error(),
+                        Err(_) => Self::internal_server_error(request),
                         Ok(content) => {
-                            let mut resp = Self::ok();
+                            let mut resp = Self::ok(request);
                             let ct = Headers::ContentType(ContentType::OctentStream);
                             resp.headers.insert(ct);
                             resp.body = Some(content);
@@ -92,60 +92,64 @@ impl Router {
         let sections = &request.header.url.sections;
 
         if sections.len() == 1 {
-            return Self::not_found();
+            return Self::not_found(request);
         }
         match &self.directory {
-            None => Self::internal_server_error(),
+            None => Self::internal_server_error(request),
             Some(directory) => {
                 let mut path = PathBuf::from(directory);
                 path.push(&sections[1]);
 
                 match &request.body {
-                    None => Self::internal_server_error(),
+                    None => Self::internal_server_error(request),
                     Some(content) => {
                         if let Err(err) = tokio::fs::write(path, content).await {
                             eprintln!("error {:?}", err);
-                            return Self::internal_server_error();
+                            return Self::internal_server_error(request);
                         }
-                        Self::created()
+                        Self::created(request)
                     }
                 }
             }
         }
     }
 
-    fn created() -> Response {
+    fn created(request: &Request) -> Response {
         Response {
             version: Version::Http11,
             status: Status::Created,
             headers: Default::default(),
+            accept_encoding: request.header.accept_encoding,
             body: None,
         }
     }
 
-    fn ok() -> Response {
+    fn ok(request: &Request) -> Response {
         Response {
             version: Version::Http11,
             status: Status::Ok,
             headers: Default::default(),
+            accept_encoding: request.header.accept_encoding,
             body: None,
         }
     }
 
-    fn not_found() -> Response {
+    fn not_found(request: &Request) -> Response {
         Response {
             version: Version::Http11,
             status: Status::NotFound,
             headers: Default::default(),
+            accept_encoding: request.header.accept_encoding,
             body: None,
         }
     }
 
-    fn internal_server_error() -> Response {
+    fn internal_server_error(request: &Request) -> Response {
         Response {
             version: Version::Http11,
             status: Status::InternalServerError,
             headers: Default::default(),
+            accept_encoding: request.header.accept_encoding,
             body: None,
         }
     }

@@ -31,6 +31,30 @@ impl From<&str> for Method {
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+pub enum Encoding {
+    Gzip,
+}
+
+impl Encoding {
+    pub fn text(&self) -> &str {
+        match self {
+            Encoding::Gzip => "gzip",
+        }
+    }
+}
+
+impl TryFrom<&str> for Encoding {
+    type Error = ();
+
+    fn try_from(value: &str) -> Result<Self, Self::Error> {
+        match value {
+            "gzip" => Ok(Encoding::Gzip),
+            _ => Err(()),
+        }
+    }
+}
+
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub enum Version {
     Http11,
@@ -102,6 +126,7 @@ pub struct Header {
     pub method: Method,
     pub url: Url,
     pub version: Version,
+    pub accept_encoding: Option<Encoding>,
     pub headers: HashMap<String, String>,
 }
 
@@ -156,6 +181,17 @@ mod parsing {
         let (buf, ((method, url, version), headers)) =
             context("header", terminated(header, parse_new_line))(buf)?;
 
+        let mut accept_encoding = None;
+
+        if let Some(l) = headers.get("accept-encoding") {
+            for enc in l.split(',') {
+                if let Ok(enc) = enc.trim().try_into() {
+                    accept_encoding = Some(enc);
+                    break;
+                }
+            }
+        }
+
         Ok((
             buf,
             Header {
@@ -163,6 +199,7 @@ mod parsing {
                 url,
                 version,
                 headers,
+                accept_encoding,
             },
         ))
     }
@@ -194,7 +231,7 @@ mod parsing {
 
         let to_string = |s| std::str::from_utf8(s).expect("unable to parse").to_string();
 
-        Ok((res, (to_string(key), to_string(value))))
+        Ok((res, (to_string(key).to_lowercase(), to_string(value))))
     }
 
     fn parse_new_line(buf: &[u8]) -> Result<&[u8], &[u8]> {
@@ -319,7 +356,7 @@ mod parsing {
                 super::parse_header_lines(input.as_bytes()).expect("able to parse");
             assert_eq!(res.len(), 0);
 
-            assert_eq!(Some(&"localhost:4221".to_string()), headers.get("Host"));
+            assert_eq!(Some(&"localhost:4221".to_string()), headers.get("host"));
             assert_eq!(Some(&"*/*".to_string()), headers.get("Accept"));
         }
 
