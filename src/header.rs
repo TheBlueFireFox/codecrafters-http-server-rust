@@ -61,7 +61,41 @@ impl From<&str> for Version {
     }
 }
 
-pub type Url = String;
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Url {
+    pub sections: Vec<String>,
+    pub query: Option<String>,
+}
+
+impl From<&str> for Url {
+    fn from(value: &str) -> Self {
+        let (uri, query) = match value.split_once('?') {
+            None => (value, None),
+            Some((uri, query)) => (uri, Some(query.to_string())),
+        };
+
+        let mut parts = vec![];
+        if uri == "/" {
+            parts.push("/".to_string());
+            return Self {
+                sections: parts,
+                query,
+            };
+        }
+        for sections in uri.split('/') {
+            // this is root
+            if sections.is_empty() {
+                continue;
+            }
+            parts.push(sections.to_string());
+        }
+
+        Self {
+            sections: parts,
+            query,
+        }
+    }
+}
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Header {
@@ -182,10 +216,7 @@ mod parsing {
 
     fn parse_url(buf: &[u8]) -> Result<&[u8], Url> {
         let (res, url) = take_until(" ")(buf)?;
-        Ok((
-            res,
-            std::str::from_utf8(url).expect("url not valid").to_string(),
-        ))
+        Ok((res, std::str::from_utf8(url).expect("url not valid").into()))
     }
 
     fn parse_version(buf: &[u8]) -> Result<&[u8], Version> {
@@ -252,7 +283,7 @@ mod parsing {
 
             assert_eq!(header.method, Method::Get);
             assert_eq!(header.version, Version::Http11);
-            assert_eq!(header.url, "/");
+            assert_eq!(header.url, "/".into());
             assert!(header.headers.is_empty());
         }
 
@@ -266,7 +297,7 @@ mod parsing {
 
             assert_eq!(header.method, Method::Get);
             assert_eq!(header.version, Version::Http11);
-            assert_eq!(header.url, "/something?foo=2");
+            assert_eq!(header.url, "/something?foo=2".into());
             assert!(header.headers.is_empty());
         }
 
@@ -299,7 +330,7 @@ mod parsing {
 
             assert_eq!(header.method, Method::Get);
             assert_eq!(header.version, Version::Http11);
-            assert_eq!(header.url, "/user-agent");
+            assert_eq!(header.url, "/user-agent".into());
 
             assert_eq!(
                 Some(&"localhost:4221".to_string()),

@@ -1,4 +1,5 @@
 mod header;
+mod processing;
 mod response;
 
 use std::io::ErrorKind;
@@ -67,21 +68,7 @@ async fn handle_connection(stream: TcpStream) -> anyhow::Result<()> {
 }
 
 async fn process_request(request: &Request) -> Response {
-    if request.header.url == "/" {
-        response::Response {
-            version: header::Version::Http11,
-            status: response::Status::Ok,
-            headers: Default::default(),
-            body: None,
-        }
-    } else {
-        response::Response {
-            version: header::Version::Http11,
-            status: response::Status::NotFound,
-            headers: Default::default(),
-            body: None,
-        }
-    }
+    processing::process(request).await
 }
 
 async fn write_response(writer: &mut OwnedWriteHalf, buf: &[u8]) -> anyhow::Result<()> {

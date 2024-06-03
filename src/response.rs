@@ -1,5 +1,5 @@
 #![allow(dead_code)]
-use std::collections::HashMap;
+use std::collections::BTreeSet;
 
 use crate::header;
 
@@ -9,6 +9,34 @@ pub enum Status {
     Forbidden,
     NotFound,
     InternalServerError,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
+pub enum ContentType {
+    TextPlain,
+}
+
+impl ContentType {
+    pub fn text(&self) -> &'static str {
+        match self {
+            ContentType::TextPlain => "text/plain",
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
+pub enum Headers {
+    ContentType(ContentType),
+    ContentLength(usize),
+}
+
+impl Headers {
+    pub fn text(&self) -> (&'static str, String) {
+        match self {
+            Headers::ContentType(ct) => ("Content-Type", ct.text().to_string()),
+            Headers::ContentLength(size) => ("Content-Length", format!("{}", size)),
+        }
+    }
 }
 
 impl Status {
@@ -35,7 +63,7 @@ impl Status {
 pub struct Response {
     pub version: header::Version,
     pub status: Status,
-    pub headers: HashMap<String, String>,
+    pub headers: BTreeSet<Headers>,
     pub body: Option<Vec<u8>>,
 }
 
@@ -49,17 +77,29 @@ impl Response {
         buf.extend_from_slice(self.status.reason().as_bytes());
         buf.extend_from_slice(END_LINE.as_bytes());
 
-        for (key, value) in &self.headers {
+        let insert = |key: &str, value: &str, buf: &mut Vec<u8>| {
             buf.extend_from_slice(key.as_bytes());
             buf.extend_from_slice(": ".as_bytes());
             buf.extend_from_slice(value.as_bytes());
             buf.extend_from_slice(END_LINE.as_bytes());
-        }
-        buf.extend_from_slice(END_LINE.as_bytes());
+        };
 
-        // TODO: body
-        if let Some(body) = &self.body {
-            buf.extend_from_slice(body);
+        for header in &self.headers {
+            if let Headers::ContentLength(_) = header {
+                continue;
+            }
+            let (key, value) = header.text();
+            insert(key, &value, buf);
+        }
+
+        match &self.body {
+            None => buf.extend_from_slice(END_LINE.as_bytes()),
+            Some(body) => {
+                let (key, value) = Headers::ContentLength(body.len()).text();
+                insert(key, &value, buf);
+                buf.extend_from_slice(END_LINE.as_bytes());
+                buf.extend_from_slice(body);
+            }
         }
     }
 }
@@ -68,9 +108,9 @@ const END_LINE: &str = "\r\n";
 
 #[cfg(test)]
 mod test {
-    use itertools::Itertools;
-
     use super::*;
+    use itertools::Itertools;
+    use pretty_assertions::assert_eq;
 
     #[test]
     fn test_status_line() {
@@ -89,8 +129,8 @@ mod test {
 
     #[test]
     fn test_with_header() {
-        let mut headers = HashMap::new();
-        headers.insert("Content-Type".to_string(), "text/plain".to_string());
+        let mut headers = BTreeSet::new();
+        headers.insert(Headers::ContentType(ContentType::TextPlain));
 
         let res = Response {
             version: header::Version::Http11,
@@ -107,8 +147,8 @@ mod test {
 
     #[test]
     fn test_with_body() {
-        let mut headers = HashMap::new();
-        headers.insert("Content-Type".to_string(), "text/plain".to_string());
+        let mut headers = BTreeSet::new();
+        headers.insert(Headers::ContentType(ContentType::TextPlain));
 
         let res = Response {
             version: header::Version::Http11,
@@ -125,7 +165,7 @@ mod test {
         let mut buffer = Vec::new();
         res.write(&mut buffer);
         let exp =
-            "HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\n\r\nSomebody once told me!".as_bytes();
+            "HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\nContent-Length: 22\r\n\r\nSomebody once told me!".as_bytes();
 
         assert_eq!(exp, buffer);
     }
