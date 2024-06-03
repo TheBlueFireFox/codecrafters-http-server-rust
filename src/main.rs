@@ -4,8 +4,7 @@ mod response;
 
 use std::io::ErrorKind;
 
-use header::Request;
-use response::Response;
+use processing::Router;
 use tokio::{
     io::AsyncWriteExt,
     net::{
@@ -14,8 +13,19 @@ use tokio::{
     },
 };
 
+use clap::Parser;
+
+#[derive(Parser, Debug)]
+#[command(version, about, long_about = None)]
+struct Args {
+    #[arg(short, long)]
+    directory: Option<String>,
+}
+
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
+    let args = Args::parse();
+
     // You can use print statements as follows for debugging, they'll be visible when running tests.
     println!("Logs from your program will appear here!");
 
@@ -23,19 +33,22 @@ async fn main() -> anyhow::Result<()> {
 
     loop {
         let (socket, _) = listener.accept().await?;
+        let directory = args.directory.clone();
 
         tokio::spawn(async move {
-            handle_connection(socket)
+            handle_connection(socket, directory)
                 .await
                 .expect("Unable to handle the connection");
         });
     }
 }
 
-async fn handle_connection(stream: TcpStream) -> anyhow::Result<()> {
+async fn handle_connection(stream: TcpStream, directory: Option<String>) -> anyhow::Result<()> {
     let (reader, mut writer) = stream.into_split();
     let mut in_buf = Vec::with_capacity(4 * 1024);
     let mut out_buf = Vec::with_capacity(4 * 1024);
+    let r = Router { directory };
+
     loop {
         in_buf.clear();
         out_buf.clear();
@@ -52,7 +65,7 @@ async fn handle_connection(stream: TcpStream) -> anyhow::Result<()> {
         let (request, _) = header::parse(&in_buf[..size])?;
         println!("{:?}", request);
 
-        let resp = process_request(&request).await;
+        let resp = r.process(&request).await;
         resp.write(&mut out_buf);
 
         write_response(&mut writer, &out_buf).await?;
@@ -65,10 +78,6 @@ async fn handle_connection(stream: TcpStream) -> anyhow::Result<()> {
             break Ok(());
         }
     }
-}
-
-async fn process_request(request: &Request) -> Response {
-    processing::process(request).await
 }
 
 async fn write_response(writer: &mut OwnedWriteHalf, buf: &[u8]) -> anyhow::Result<()> {

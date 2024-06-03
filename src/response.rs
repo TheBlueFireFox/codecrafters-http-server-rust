@@ -14,12 +14,14 @@ pub enum Status {
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
 pub enum ContentType {
     TextPlain,
+    OctentStream
 }
 
 impl ContentType {
     pub fn text(&self) -> &'static str {
         match self {
             ContentType::TextPlain => "text/plain",
+            ContentType::OctentStream => "application/octet-stream",
         }
     }
 }
