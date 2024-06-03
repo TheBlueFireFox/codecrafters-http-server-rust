@@ -43,6 +43,9 @@ async fn echo(request: &Request) -> Response {
 
 async fn user_agent(request: &Request) -> Response {
     let mut resp = ok();
+    let ct = Headers::ContentType(ContentType::TextPlain);
+
+    resp.headers.insert(ct);
     resp.body = Some(request.header.headers["User-Agent"].as_bytes().to_vec());
     resp
 }
