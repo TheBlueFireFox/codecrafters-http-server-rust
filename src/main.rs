@@ -51,12 +51,9 @@ async fn handle_connection(stream: TcpStream) -> anyhow::Result<()> {
         let (request, _) = header::parse(&in_buf[..size])?;
         println!("{:?}", request);
 
-        // out_buf.extend_from_slice();
-
-        // parse_request();
-        // process_request();
         let resp = process_request(&request).await;
         resp.write(&mut out_buf);
+
         write_response(&mut writer, &out_buf).await?;
 
         if let Some(v) = request.header.headers.get("Connection") {
@@ -69,12 +66,21 @@ async fn handle_connection(stream: TcpStream) -> anyhow::Result<()> {
     }
 }
 
-async fn process_request(_request: &Request) -> Response {
-    response::Response {
-        version: header::Version::Http11,
-        status: response::Status::Ok,
-        headers: Default::default(),
-        body: None,
+async fn process_request(request: &Request) -> Response {
+    if request.header.url == "/" {
+        response::Response {
+            version: header::Version::Http11,
+            status: response::Status::Ok,
+            headers: Default::default(),
+            body: None,
+        }
+    } else {
+        response::Response {
+            version: header::Version::Http11,
+            status: response::Status::NotFound,
+            headers: Default::default(),
+            body: None,
+        }
     }
 }
 
