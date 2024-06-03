@@ -3,7 +3,7 @@ use std::path::PathBuf;
 use tokio::fs::{read, try_exists};
 
 use crate::{
-    header::{Request, Version},
+    request::{Method, Request, Version},
     response::{ContentType, Headers, Response, Status},
 };
 
@@ -51,6 +51,13 @@ impl Router {
     }
 
     async fn files(&self, request: &Request) -> Response {
+        match request.header.method {
+            Method::Get => self.files_get(request).await,
+            Method::Post => self.files_post(request).await,
+        }
+    }
+
+    async fn files_get(&self, request: &Request) -> Response {
         let sections = &request.header.url.sections;
 
         if sections.len() == 1 {
@@ -78,6 +85,41 @@ impl Router {
                     },
                 }
             }
+        }
+    }
+
+    async fn files_post(&self, request: &Request) -> Response {
+        let sections = &request.header.url.sections;
+
+        if sections.len() == 1 {
+            return Self::not_found();
+        }
+        match &self.directory {
+            None => Self::internal_server_error(),
+            Some(directory) => {
+                let mut path = PathBuf::from(directory);
+                path.push(&sections[1]);
+
+                match &request.body {
+                    None => Self::internal_server_error(),
+                    Some(content) => {
+                        if let Err(err) = tokio::fs::write(path, content).await {
+                            eprintln!("error {:?}", err);
+                            return Self::internal_server_error();
+                        }
+                        Self::created()
+                    }
+                }
+            }
+        }
+    }
+
+    fn created() -> Response {
+        Response {
+            version: Version::Http11,
+            status: Status::Created,
+            headers: Default::default(),
+            body: None,
         }
     }
 

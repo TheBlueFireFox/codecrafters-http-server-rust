@@ -1,20 +1,12 @@
 #![allow(dead_code)]
 use std::collections::BTreeSet;
 
-use crate::header;
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum Status {
-    Ok,
-    Forbidden,
-    NotFound,
-    InternalServerError,
-}
+use crate::request::Version;
 
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
 pub enum ContentType {
     TextPlain,
-    OctentStream
+    OctentStream,
 }
 
 impl ContentType {
@@ -41,10 +33,20 @@ impl Headers {
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Status {
+    Ok,
+    Created,
+    Forbidden,
+    NotFound,
+    InternalServerError,
+}
+
 impl Status {
     pub fn code(&self) -> &str {
         match self {
             Status::Ok => "200",
+            Status::Created => "201",
             Status::Forbidden => "403",
             Status::NotFound => "404",
             Status::InternalServerError => "500",
@@ -54,6 +56,7 @@ impl Status {
     pub fn reason(&self) -> &str {
         match self {
             Status::Ok => "OK",
+            Status::Created => "Created",
             Status::Forbidden => "Forbidden",
             Status::NotFound => "Not Found",
             Status::InternalServerError => "Internal Server Error",
@@ -63,7 +66,7 @@ impl Status {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Response {
-    pub version: header::Version,
+    pub version: Version,
     pub status: Status,
     pub headers: BTreeSet<Headers>,
     pub body: Option<Vec<u8>>,
@@ -110,6 +113,8 @@ const END_LINE: &str = "\r\n";
 
 #[cfg(test)]
 mod test {
+    use crate::request::Version;
+
     use super::*;
     use itertools::Itertools;
     use pretty_assertions::assert_eq;
@@ -117,7 +122,7 @@ mod test {
     #[test]
     fn test_status_line() {
         let res = Response {
-            version: header::Version::Http11,
+            version: Version::Http11,
             status: Status::Ok,
             headers: Default::default(),
             body: None,
@@ -135,7 +140,7 @@ mod test {
         headers.insert(Headers::ContentType(ContentType::TextPlain));
 
         let res = Response {
-            version: header::Version::Http11,
+            version: Version::Http11,
             status: Status::Ok,
             headers,
             body: None,
@@ -153,7 +158,7 @@ mod test {
         headers.insert(Headers::ContentType(ContentType::TextPlain));
 
         let res = Response {
-            version: header::Version::Http11,
+            version: Version::Http11,
             status: Status::Ok,
             headers,
             body: Some(

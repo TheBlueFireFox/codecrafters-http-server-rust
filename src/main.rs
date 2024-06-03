@@ -1,4 +1,4 @@
-mod header;
+mod request;
 mod processing;
 mod response;
 
@@ -62,7 +62,7 @@ async fn handle_connection(stream: TcpStream, directory: Option<String>) -> anyh
             break Ok(());
         }
 
-        let (request, _) = header::parse(&in_buf[..size])?;
+        let (request, _) = request::parse(&in_buf[..size])?;
         println!("{:?}", request);
 
         let resp = r.process(&request).await;

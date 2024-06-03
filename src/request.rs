@@ -135,24 +135,26 @@ mod parsing {
         let (mut res, header) = parse_header(buf)?;
 
         // get body
-        let mut body = None;
-        if res.starts_with("\r\n".as_bytes()) {
-            res = &res[2..];
-            body = Some(res.to_vec());
+        let body = if res.is_empty() {
+            None
+        } else {
+            let v = res.to_vec();
             res = &[];
-        }
+
+            Some(v)
+        };
 
         Ok((res, Request { header, body }))
     }
 
     fn parse_header(buf: &[u8]) -> Result<&[u8], Header> {
-        let (buf, ((method, url, version), headers)) = context(
-            "header",
-            tuple((
-                terminated(parse_request_line, parse_new_line),
-                parse_header_lines,
-            )),
-        )(buf)?;
+        let header = tuple((
+            terminated(parse_request_line, parse_new_line),
+            parse_header_lines,
+        ));
+
+        let (buf, ((method, url, version), headers)) =
+            context("header", terminated(header, parse_new_line))(buf)?;
 
         Ok((
             buf,
@@ -277,35 +279,34 @@ mod parsing {
 
         #[test]
         fn parse_request_line() {
-            let s = "GET / HTTP/1.1\r\n";
-            let (_, Request { header, body }) = parse(s.as_bytes()).expect("able to parse");
-            assert_eq!(body, None);
+            let s = "GET / HTTP/1.1";
+            let (res, (method, uri, version)) =
+                super::parse_request_line(s.as_bytes()).expect("able to parse");
+            assert_eq!(res.len(), 0);
 
-            assert_eq!(header.method, Method::Get);
-            assert_eq!(header.version, Version::Http11);
-            assert_eq!(header.url, "/".into());
-            assert!(header.headers.is_empty());
+            assert_eq!(method, Method::Get);
+            assert_eq!(version, Version::Http11);
+            assert_eq!(uri, "/".into());
         }
 
         #[test]
         fn parse_request_line_with_query() {
-            let s = "GET /something?foo=2 HTTP/1.1\r\n";
-            let (res, Request { header, body }) = parse(s.as_bytes()).expect("able to parse");
+            let s = "GET /something?foo=2 HTTP/1.1";
+            let (res, (method, uri, version)) =
+                super::parse_request_line(s.as_bytes()).expect("able to parse");
+            assert_eq!(res.len(), 0);
 
-            assert!(res.is_empty());
-            assert_eq!(body, None);
-
-            assert_eq!(header.method, Method::Get);
-            assert_eq!(header.version, Version::Http11);
-            assert_eq!(header.url, "/something?foo=2".into());
-            assert!(header.headers.is_empty());
+            assert_eq!(method, Method::Get);
+            assert_eq!(version, Version::Http11);
+            assert_eq!(uri, "/something?foo=2".into());
         }
 
         #[test]
         fn parse_header_single_line() {
-            let input = "Host: localhost:4221\r\n";
-            let (_, (host, localhost)) =
+            let input = "Host: localhost:4221";
+            let (res, (host, localhost)) =
                 super::parse_header_line(input.as_bytes()).expect("able to parse");
+            assert_eq!(res.len(), 0);
 
             assert_eq!("Host", host);
             assert_eq!("localhost:4221", localhost);
@@ -313,11 +314,31 @@ mod parsing {
 
         #[test]
         fn parse_header_lines() {
-            let input = "Host: localhost:4221\r\nUser-Agent: foobar/1.2.3\r\nAccept: */*\r\n\r\n";
-            let (_, headers) = super::parse_header_lines(input.as_bytes()).expect("able to parse");
+            let input = "Host: localhost:4221\r\nUser-Agent: foobar/1.2.3\r\nAccept: */*\r\n";
+            let (res, headers) =
+                super::parse_header_lines(input.as_bytes()).expect("able to parse");
+            assert_eq!(res.len(), 0);
 
             assert_eq!(Some(&"localhost:4221".to_string()), headers.get("Host"));
             assert_eq!(Some(&"*/*".to_string()), headers.get("Accept"));
+        }
+
+        #[test]
+        fn parse_full_request_no_body() {
+            let input = "POST /files HTTP/1.1\r\nHost: localhost:4221\r\nUser-Agent: curl/8.8.0\r\nAccept: */*\r\n\r\n";
+            let (res, Request { header, body }) = parse(input.as_bytes()).expect("able to parse");
+            assert_eq!(res.len(), 0);
+
+            assert_eq!(header.method, Method::Post);
+            assert_eq!(header.version, Version::Http11);
+            assert_eq!(header.url, "/files".into());
+
+            assert_eq!(
+                Some(&"localhost:4221".to_string()),
+                header.headers.get("Host")
+            );
+
+            assert_eq!(None, body);
         }
 
         #[test]
@@ -336,6 +357,19 @@ mod parsing {
                 Some(&"localhost:4221".to_string()),
                 header.headers.get("Host")
             );
+        }
+
+        #[test]
+        fn parse_post() {
+            let input = "POST /files HTTP/1.1\r\nHost: localhost:4221\r\nUser-Agent: curl/8.8.0\r\nAccept: */*\r\nContent-Length: 9\r\nContent-Type: application/x-www-form-urlencoded\r\n\r\nsomething";
+            let (res, Request { header, body }) = parse(input.as_bytes()).expect("able to parse");
+
+            assert_eq!(res.len(), 0);
+
+            assert_eq!(header.method, Method::Post);
+            assert_eq!(header.version, Version::Http11);
+            assert_eq!(header.url, "/files".into());
+            assert_eq!(Some("something".as_bytes()), body.as_deref());
         }
     }
 }
